@@ -1,0 +1,8 @@
+*.pyc
+*~
+
+doc/*pdf
+doc/*.gz
+doc/*.aux
+doc/*.log
+doc/*.out

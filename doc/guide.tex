@@ -1,0 +1,78 @@
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[top=60pt, bottom=60pt, left=70pt, right=70pt]{geometry}
+\usepackage{graphicx}
+% Default fixed font does not support bold face
+\DeclareFixedFont{\ttb}{T1}{txtt}{bx}{n}{8} % for bold
+\DeclareFixedFont{\ttm}{T1}{txtt}{m}{n}{8}  % for normal
+
+\title{Code Overview}
+\author{Daniel W. Zaide}
+
+\begin{document}
+
+\maketitle
+
+\section{Overview}
+
+The main objectives of this code:
+\begin{itemize}
+\item Versatility - The code should be versatile, flexible, and handle a wide range of possible physics
+\item Simplicity - The code should be simple, and defining new components and physics should be easy and clean
+\item Readable - Outside of the infrastructure, the physics components and problem setup should be readable
+\end{itemize}
+
+With that in mind, we leverage python using {\bf list} and {\bf dict}, rather than numerical arrays to allow for flexibility. We also use function handles to allow for easy definition of functions and allow for runtime adding variables classes.
+
+There are five main files in the base, {\bf src/base}, directory:
+\begin{itemize}
+\item [blocks.py] - contains definitions of block objects, our control volume like object
+\item [flux.py] - contains definitions of fluxes and flux functions
+\item [source.py] - contains definitions of sources and source functions
+\item [problem.py] - contains solvers, manages system construction
+\end{itemize}
+\section{Infrastructure of base directory}
+The goal is ultimately to solve the global system
+\begin{equation}
+\mathbf{R}(\mathbf{U}) = \sum_F \mathbf{F}(\mathbf{U}) + \sum_S \mathbf{S}(\mathbf{U}) = \mathbf{0}
+\end{equation}
+for a set of states $\mathbf{U}$, flux functions $\mathbf{F}$, and sources $\mathbf{S}$. Rather than a typical control volume approach, a simpler abstraction is used: {\bf blocks}. Each block has its own state variables, and the equations for these state variables are defined by fluxes (information from neighboring blocks) and sources (external information). Boundary conditions are done implicitly with a ghost cell type approach, defining blocks with states that remain constant. Wrapping the whole thing together is a {\bf problem} object, which is initialized with the blocks we are solving for. The boundary blocks are created, but are passed in separately to the problem object.
+
+\subsection{Blocks}
+Each typical control volume can be considered as a block. Blocks are connected to other blocks through fluxes, which act as boundary conditions. Blocks can have arbitrary state variables, and not all blocks have to have the same set of states, provided flux functions are defined that connect them together. Every block has a set of states, $U$, stored in the {\bf .state}. Consider a block with temperature, density, and velocity defined. The state for example, may look like
+\begin{verbatim}
+>>> block.state
+OrderedDict([('T',20), ('rho',1.05), ('u',0.01)])
+\end{verbatim}
+where the ordered dictionary is used to preserve the mapping used in construction of the global problem. We can access these variables using the dict, such as {\bf block.state['T']}. Every block defines its own equation
+\begin{equation}
+R(U) = \sum_{(F,N)} F(U,N) + \sum_S S(U) = 0
+\end{equation}
+for block $B$, its states $U \in B$, and its connected neighboring blocks, $N$ and corresponding fluxes. In this framework the {\bf OrderedDict} structure is used to keep track of state variables. Each block can have its own set of states, provided there is an equation (flux or source) to be solved (R cannot be empty). The form of this will be a dictionary, and the sum of the fluxes and sources will be a sum over similar dictionaries.
+
+Blocks contain additional information, such as materials or constant properties in the form of dictionaries of functions and function parameters. These are defined at initialization. This is implemented and documented in {\bf blocks.py}
+\subsection{Fluxes}
+Fluxes are defined through blocks which remain constant, such as external temperatures or inflow conditions. Each flux is a function of two blocks, the block they belong to, and their neighboring block. Boundary conditions are currently defined by fluxes with one block not part of the problem (constant). Each flux function is defined in {\bf flux.py}, and is initialized by passing in the flux function name. Fluxes are one directional (from one block to another) and are assigned to a block, using the {\bf addFlux} function for a block. Flux functions also contain their own parameters, a dictionary of constants they can use.
+\subsection{Sources}
+Sources are defined similar to fluxes, but are functions of a block. They are defined in {\bf source.py}.
+\subsection{Problem}
+This is a class that serves as a wrapper for everything, converting from the local block regions into a global matrix and back to do the solve. The problem is initialized with a list of blocks.
+\begin{verbatim}
+def __init__(self,blocks):
+		self.b = blocks
+		self.mapping = [(i, k) for i, b in enumerate(blocks) for k in b.state.keys()]
+\end{verbatim}
+where the mapping between blocks into a global list is done at initialization, and stored for reuse. 
+\begin{verbatim}
+def solve(self):
+		solution = [None]*len(self.mapping)
+		for ix, (i,k) in enumerate(self.mapping):
+			solution[ix] = self.b[i].state[k]
+		solution = fsolve(self.r, solution)
+		self.update(solution)
+\end{verbatim}
+This class is the one that needs the least work, the only places that should be modified are in {\bf solution = fsolve(self.r, solution)}, where {\bf fsolve} is a built-in function from {\bf scipy.optimize}.
+
+There is also an unsteady solve which solves time-dependent ODEs using {\bf scipy.odeint}, see diffusion2D.py for an example.
+
+\end{document}
